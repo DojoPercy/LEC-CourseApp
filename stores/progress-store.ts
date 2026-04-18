@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import NetInfo from "@react-native-community/netinfo";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { apiFetch } from "@/lib/api";
@@ -6,9 +7,15 @@ import { useAuthStore } from "@/stores/auth-store";
 import { useCoursesStore } from "@/stores/courses-store";
 import type { CourseProgress, UserCourse, UserSection } from "@/types/course";
 
+interface PendingSync {
+  sectionId: string;
+  courseId: string;
+}
+
 interface ProgressState {
   enrolledCourses: UserCourse[];
   completedSections: UserSection[];
+  pendingSyncs: PendingSync[];
 
   // Actions
   enrollInCourse: (courseId: string) => Promise<void>;
@@ -16,6 +23,7 @@ interface ProgressState {
   markSectionComplete: (sectionId: string, courseId: string) => Promise<void>;
   setLastAccessedSection: (courseId: string, sectionId: string) => void;
   syncProgressFromApi: (courseId: string) => Promise<void>;
+  flushPendingSyncs: () => Promise<void>;
 
   // Selectors
   isEnrolled: (courseId: string) => boolean;
@@ -32,12 +40,12 @@ export const useProgressStore = create<ProgressState>()(
     (set, get) => ({
       enrolledCourses: [],
       completedSections: [],
+      pendingSyncs: [],
 
       enrollInCourse: async (courseId) => {
         const { isEnrolled, enrolledCourses } = get();
         if (isEnrolled(courseId)) return;
 
-        // Optimistic local update
         set({
           enrolledCourses: [
             ...enrolledCourses,
@@ -50,20 +58,19 @@ export const useProgressStore = create<ProgressState>()(
           ],
         });
 
-        // Sync to API
         try {
           await useCoursesStore.getState().enrollInCourse(courseId);
         } catch (e) {
           console.warn("[enrollInCourse] API call failed:", e);
-          // Keep local enroll even if API fails (offline-friendly)
         }
       },
 
       unenrollFromCourse: (courseId) => {
-        const { enrolledCourses, completedSections } = get();
+        const { enrolledCourses, completedSections, pendingSyncs } = get();
         set({
           enrolledCourses: enrolledCourses.filter((c) => c.courseId !== courseId),
           completedSections: completedSections.filter((s) => s.courseId !== courseId),
+          pendingSyncs: pendingSyncs.filter((p) => p.courseId !== courseId),
         });
       },
 
@@ -71,7 +78,7 @@ export const useProgressStore = create<ProgressState>()(
         const { completedSections, isSectionCompleted } = get();
         if (isSectionCompleted(sectionId)) return;
 
-        // Optimistic local update
+        // Optimistic local update always
         set({
           completedSections: [
             ...completedSections,
@@ -79,18 +86,62 @@ export const useProgressStore = create<ProgressState>()(
           ],
         });
 
-        // Sync to API in background
         const token = useAuthStore.getState().token;
-        if (token) {
+        if (!token) return;
+
+        const net = await NetInfo.fetch();
+        if (!net.isConnected) {
+          // Queue for later
+          set((s) => ({
+            pendingSyncs: [...s.pendingSyncs, { sectionId, courseId }],
+          }));
+          console.log("[markSectionComplete] offline — queued for sync");
+          return;
+        }
+
+        try {
+          await apiFetch(
+            `/api/sections/${sectionId}/complete`,
+            { method: "PATCH", body: JSON.stringify({ courseId }) },
+            token
+          );
+        } catch (e) {
+          // Network error mid-request — queue it
+          set((s) => ({
+            pendingSyncs: [...s.pendingSyncs, { sectionId, courseId }],
+          }));
+          console.warn("[markSectionComplete] request failed — queued for sync");
+        }
+      },
+
+      flushPendingSyncs: async () => {
+        const { pendingSyncs } = get();
+        if (pendingSyncs.length === 0) return;
+
+        const token = useAuthStore.getState().token;
+        if (!token) return;
+
+        const net = await NetInfo.fetch();
+        if (!net.isConnected) return;
+
+        const remaining: PendingSync[] = [];
+
+        for (const item of pendingSyncs) {
           try {
             await apiFetch(
-              `/api/sections/${sectionId}/complete`,
-              { method: "PATCH", body: JSON.stringify({ courseId }) },
+              `/api/sections/${item.sectionId}/complete`,
+              { method: "PATCH", body: JSON.stringify({ courseId: item.courseId }) },
               token
             );
-          } catch (e) {
-            console.warn("[markSectionComplete] API sync failed:", e);
+            console.log("[flushPendingSyncs] synced", item.sectionId);
+          } catch {
+            remaining.push(item);
           }
+        }
+
+        set({ pendingSyncs: remaining });
+        if (remaining.length < pendingSyncs.length) {
+          console.log(`[flushPendingSyncs] synced ${pendingSyncs.length - remaining.length} item(s), ${remaining.length} remaining`);
         }
       },
 
@@ -105,7 +156,6 @@ export const useProgressStore = create<ProgressState>()(
         });
       },
 
-      /** Pull real progress from API and merge into local state */
       syncProgressFromApi: async (courseId) => {
         const token = useAuthStore.getState().token;
         if (!token) return;
@@ -123,7 +173,6 @@ export const useProgressStore = create<ProgressState>()(
             }));
 
           const { completedSections } = get();
-          // Merge: keep any local completions + add API ones
           const existing = new Set(completedSections.map((s) => s.sectionId));
           const newFromApi = completed.filter((s) => !existing.has(s.sectionId));
 
@@ -169,7 +218,7 @@ export const useProgressStore = create<ProgressState>()(
         get().completedSections.length,
     }),
     {
-      name: "progress-storage",
+      name: "progress-storage-v2",
       storage: createJSONStorage(() => AsyncStorage),
     }
   )

@@ -1,9 +1,23 @@
+import Constants from 'expo-constants';
 
 class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
     this.name = "ApiError";
   }
+}
+
+function getBaseUrl(): string {
+  // Explicit env var takes priority (used in EAS builds)
+  if (process.env.EXPO_PUBLIC_API_URL) {
+    return process.env.EXPO_PUBLIC_API_URL;
+  }
+  // In Expo Go dev mode, derive host from the Metro bundler address
+  if (__DEV__) {
+    const host = Constants.expoConfig?.hostUri?.split(':')[0] ?? 'localhost';
+    return `http://${host}:3000`;
+  }
+  return 'https://yxoedr2d31.execute-api.us-east-1.amazonaws.com';
 }
 
 export async function apiFetch<T>(
@@ -17,7 +31,7 @@ export async function apiFetch<T>(
   };
 
   const method = options.method ?? "GET";
-  const fullUrl = `http://localhost:3001${path}`;
+  const fullUrl = `${getBaseUrl()}${path}`;
   console.log(`[API] ${method} ${fullUrl}`);
 
   const res = await fetch(fullUrl, {

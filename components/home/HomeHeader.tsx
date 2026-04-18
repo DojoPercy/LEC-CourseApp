@@ -36,12 +36,10 @@ export default function HomeHeader({ user }: HomeHeaderProps) {
       <View className="flex-row items-center gap-3">
         <TouchableOpacity
           onPress={() => router.push("/(screens)/notifications")}
-          className="w-10 h-10 rounded-full bg-gray-100 items-center justify-center relative"
+          className="w-10 h-10 rounded-full bg-gray-100 items-center justify-center"
           activeOpacity={0.7}
         >
           <Ionicons name="notifications-outline" size={20} color="#121D55" />
-          {/* Notification dot */}
-          <View className="absolute top-2 right-2 w-2 h-2 rounded-full bg-red-500" />
         </TouchableOpacity>
 
         <TouchableOpacity

@@ -7,6 +7,7 @@ import type { Section } from "@/types/course";
 interface VideoPlayerProps {
   section: Section | null;
   isPlaying: boolean;
+  localUri?: string | null;
   onPlayToggle: () => void;
   onVideoEnd: () => void;
 }
@@ -14,6 +15,7 @@ interface VideoPlayerProps {
 export default function VideoPlayer({
   section,
   isPlaying,
+  localUri,
   onPlayToggle,
   onVideoEnd,
 }: VideoPlayerProps) {
@@ -24,13 +26,17 @@ export default function VideoPlayer({
   const [isFinished, setIsFinished] = useState(false);
   const hasEndedRef = useRef(false);
 
-  // Reset state when section changes
+  const remoteUri = section?.videoUrl ?? null;
+  const [playbackUri, setPlaybackUri] = useState<string | null>(localUri ?? remoteUri);
+
+  // Reset state and URI when section or localUri changes
   useEffect(() => {
     setIsFinished(false);
     setPosition(0);
     setDuration(0);
     hasEndedRef.current = false;
-  }, [section?.id]);
+    setPlaybackUri(localUri ?? remoteUri);
+  }, [section?.id, localUri]);
 
   // Sync play/pause with isPlaying prop
   useEffect(() => {
@@ -51,7 +57,10 @@ export default function VideoPlayer({
     setIsBuffering(status.isBuffering);
 
     if (status.durationMillis) setDuration(status.durationMillis);
-    if (status.positionMillis !== undefined) setPosition(status.positionMillis);
+
+    if (status.positionMillis !== undefined) {
+      setPosition(status.positionMillis);
+    }
 
     if (status.didJustFinish && !hasEndedRef.current) {
       hasEndedRef.current = true;
@@ -89,11 +98,17 @@ export default function VideoPlayer({
   return (
     <View className="relative bg-black" style={{ aspectRatio: 16 / 9 }}>
       <Video
+        key={playbackUri ?? "no-source"}
         ref={videoRef}
-        source={{ uri: section.videoUrl }}
+        source={playbackUri ? { uri: playbackUri } : undefined}
         style={{ flex: 1 }}
         resizeMode={ResizeMode.CONTAIN}
         onPlaybackStatusUpdate={handlePlaybackStatus}
+        onError={() => {
+          if (playbackUri !== remoteUri && remoteUri) {
+            setPlaybackUri(remoteUri);
+          }
+        }}
         shouldPlay={isPlaying}
         useNativeControls={false}
       />
@@ -142,16 +157,24 @@ export default function VideoPlayer({
         />
       )}
 
-      {/* Section title */}
+      {/* Section title + offline badge */}
       {section && (
-        <View className="absolute top-3 left-4 right-14">
+        <View className="absolute top-3 left-4 right-14 flex-row items-center gap-2">
           <Text
-            className="text-white text-sm"
+            className="text-white text-sm flex-shrink"
             style={{ fontFamily: "Manrope_600SemiBold" }}
             numberOfLines={1}
           >
             {section.title}
           </Text>
+          {playbackUri && playbackUri !== remoteUri && (
+            <View className="flex-row items-center gap-1 bg-green-500/80 px-1.5 py-0.5 rounded-full">
+              <Ionicons name="arrow-down-circle" size={10} color="white" />
+              <Text className="text-white text-xs" style={{ fontFamily: "Manrope_600SemiBold" }}>
+                Offline
+              </Text>
+            </View>
+          )}
         </View>
       )}
 
@@ -177,7 +200,19 @@ export default function VideoPlayer({
             </Text>
           )}
 
-          <Ionicons name="expand-outline" size={15} color="rgba(255,255,255,0.7)" />
+          <TouchableOpacity
+            onPress={async () => {
+              try {
+                await videoRef.current?.presentFullscreenPlayer();
+              } catch {
+                // Stream not ready or unsupported — silently ignore
+              }
+            }}
+            activeOpacity={0.7}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons name="expand-outline" size={15} color="rgba(255,255,255,0.7)" />
+          </TouchableOpacity>
         </View>
       </View>
     </View>

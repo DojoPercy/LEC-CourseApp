@@ -3,8 +3,8 @@
     "name": "LEC Course App",
     "slug": "lec-course-app",
     "version": "1.0.0",
-    "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "orientation": "default",
+    "icon": "./assets/LE_Logo.png",
     "scheme": "leccourseapp",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
@@ -12,30 +12,52 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "com.lec.courseapp",
+      "versionCode": 1,
       "adaptiveIcon": {
-        "backgroundColor": "#121D55",
-        "foregroundImage": "./assets/icon.png"
+        "backgroundColor": "#151A3C",
+        "foregroundImage": "./assets/LE_Logo.png"
       },
       "edgeToEdgeEnabled": true
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/icon.png"
+      "favicon": "./assets/LE_Logo.png"
     },
     "plugins": [
+      "./plugins/withGradleWrapper",
+      "./plugins/withAbiFilter",
+      "./plugins/withProguardRules",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "enableMinifyInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true
+          }
+        }
+      ],
       "expo-router",
+      "expo-screen-orientation",
       [
         "expo-splash-screen",
         {
+          "image": "./assets/LE_Logo.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#121D55"
+          "backgroundColor": "#151A3C"
         }
       ],
       "expo-font"
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "9ce0526e-dfc4-49de-8abc-347a06001ed2"
+      }
     }
   }
 }

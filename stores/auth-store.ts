@@ -11,6 +11,7 @@ interface AuthState {
   isLoading: boolean;
   resetEmail: string | null;
   isCodeVerified: boolean;
+  verifiedCode: string | null;
 
   login: (email: string, password: string) => Promise<void>;
   register: (
@@ -37,6 +38,7 @@ export const useAuthStore = create<AuthState>()(
       isLoading: false,
       resetEmail: null,
       isCodeVerified: false,
+      verifiedCode: null,
 
       login: async (email, password) => {
         set({ isLoading: true });
@@ -96,33 +98,58 @@ export const useAuthStore = create<AuthState>()(
           isAuthenticated: false,
           resetEmail: null,
           isCodeVerified: false,
+          verifiedCode: null,
         });
       },
 
-      // Password reset not yet in API — keep stubs
       sendResetCode: async (email) => {
         set({ isLoading: true });
-        await new Promise((r) => setTimeout(r, 1000));
-        set({ resetEmail: email, isLoading: false });
+        try {
+          await apiFetch<{ message: string }>("/api/auth/forgot-password", {
+            method: "POST",
+            body: JSON.stringify({ email }),
+          });
+          set({ resetEmail: email, isLoading: false });
+        } catch (error) {
+          set({ isLoading: false });
+          throw error;
+        }
       },
 
       verifyResetCode: async (code) => {
+        const { resetEmail } = get();
+        if (!resetEmail) throw new Error("No email in reset state");
         set({ isLoading: true });
-        await new Promise((r) => setTimeout(r, 800));
-        const isValid = code === "123456";
-        set({ isCodeVerified: isValid, isLoading: false });
-        return isValid;
+        try {
+          const res = await apiFetch<{ valid: boolean }>("/api/auth/verify-reset-code", {
+            method: "POST",
+            body: JSON.stringify({ email: resetEmail, code }),
+          });
+          set({ isCodeVerified: res.valid, verifiedCode: res.valid ? code : null, isLoading: false });
+          return res.valid;
+        } catch (error) {
+          set({ isLoading: false });
+          throw error;
+        }
       },
 
-      resetPassword: async (_newPassword) => {
-        const { resetEmail, isCodeVerified } = get();
-        if (!resetEmail || !isCodeVerified) throw new Error("Invalid reset state");
+      resetPassword: async (newPassword) => {
+        const { resetEmail, isCodeVerified, verifiedCode } = get();
+        if (!resetEmail || !isCodeVerified || !verifiedCode) throw new Error("Invalid reset state");
         set({ isLoading: true });
-        await new Promise((r) => setTimeout(r, 1000));
-        set({ resetEmail: null, isCodeVerified: false, isLoading: false });
+        try {
+          await apiFetch<{ message: string }>("/api/auth/reset-password", {
+            method: "POST",
+            body: JSON.stringify({ email: resetEmail, code: verifiedCode, newPassword }),
+          });
+          set({ resetEmail: null, isCodeVerified: false, verifiedCode: null, isLoading: false });
+        } catch (error) {
+          set({ isLoading: false });
+          throw error;
+        }
       },
 
-      clearResetState: () => set({ resetEmail: null, isCodeVerified: false }),
+      clearResetState: () => set({ resetEmail: null, isCodeVerified: false, verifiedCode: null }),
 
       updateProfile: (updates) => {
         const { user } = get();
